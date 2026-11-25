@@ -50,6 +50,28 @@ cmake -S . -B build/tvos \
 Then sign the generated app with your own compatible entitlement and provisioning profile.
 Unsigned public artifacts do not include a usable CloudKit entitlement.
 
+## Free Apple ID builds (no CloudKit)
+
+The default build links CloudKit and opens the `iCloud.com.linkzenic.dusklight` container at
+launch. A free Apple ID cannot get iCloud entitlements, so that build installs but is killed by
+tvOS as soon as it starts. Build with CloudKit compiled out instead:
+
+```sh
+cmake --preset x-tvos-ci \
+  -DDUSK_APPLE_CODE_SIGNING=OFF \
+  -DDUSK_ENABLE_ICLOUD_SAVE_SYNC=OFF \
+  -DDUSK_ENABLE_CODE_MODS=ON
+cmake --build --preset x-tvos-ci
+```
+
+With the flag off, CloudKit is not linked, the iCloud settings pane is hidden, and the generated
+entitlements request no iCloud services. Saves stay local to the Apple TV (the local Save Bridge
+sync still works).
+
+To avoid compiling locally, fork this repository on GitHub, open **Actions → Build tvOS (no
+CloudKit, free Apple ID) → Run workflow**, and download the `Dusklight-tvOS-unsigned-noCloudKit`
+artifact when it finishes. Sign and install that IPA as described above.
+
 ## Quit behavior
 
 Press the TV/Home button to leave Dusklight. To terminate it completely, open the tvOS app

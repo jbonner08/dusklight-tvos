@@ -1,0 +1,107 @@
+name: Build tvOS (no CloudKit, free Apple ID)
+
+# Builds an unsigned tvOS IPA with CloudKit save sync compiled out, so it can be
+# signed with a free Apple ID (no iCloud entitlement needed) and sideloaded.
+# Run it from the Actions tab ("Run workflow"), or push a tag like tvos-nocloud-v1.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'tvos-nocloud-v*'
+
+permissions:
+  contents: write
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  build:
+    name: Build unsigned tvOS IPA without CloudKit
+    runs-on: macos-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install dependencies
+        run: brew install cmake ninja protobuf
+
+      - name: Install Rust tvOS target
+        run: |
+          rustup toolchain install nightly
+          rustup target add --toolchain nightly aarch64-apple-tvos
+
+      - name: Set up compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Configure unsigned tvOS build (CloudKit off)
+        run: >-
+          cmake --preset x-tvos-ci
+          -DDUSK_APPLE_CODE_SIGNING=OFF
+          -DDUSK_ENABLE_ICLOUD_SAVE_SYNC=OFF
+          -DDUSK_ENABLE_CODE_MODS=ON
+          -DDUSK_UPSTREAM_VERSION_OVERRIDE=v2.0.1
+
+      - name: Build
+        run: cmake --build --preset x-tvos-ci
+
+      - name: Verify CloudKit is not linked
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="build/install/Dusklight.app/Dusklight"
+          otool -L "$bin"
+          if otool -L "$bin" | grep -qi cloudkit; then
+            echo "CloudKit.framework is still linked; aborting."
+            exit 1
+          fi
+          if strings "$bin" | grep -q "iCloud.com.linkzenic.dusklight"; then
+            echo "CloudKit container ID is still embedded; aborting."
+            exit 1
+          fi
+          echo "OK: no CloudKit linkage or container ID."
+
+      - name: Package and verify unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_root="build/unsigned-tvos-nocloud"
+          app_path="build/install/Dusklight.app"
+          rm -rf "$package_root"
+          mkdir -p "$package_root/Payload"
+          cp -R "$app_path" "$package_root/Payload/Dusklight.app"
+          find "$package_root/Payload/Dusklight.app" \
+            \( -name embedded.mobileprovision -o -name '*.provisionprofile' \) -delete
+          rm -rf "$package_root/Payload/Dusklight.app/_CodeSignature"
+          /usr/bin/codesign --remove-signature \
+            "$package_root/Payload/Dusklight.app" 2>/dev/null || true
+          if /usr/bin/codesign --verify "$package_root/Payload/Dusklight.app" 2>/dev/null; then
+            echo "Refusing to publish an app that still has a code signature."
+            exit 1
+          fi
+          (
+            cd "$package_root"
+            /usr/bin/zip -qry ../Dusklight-tvOS-unsigned-noCloudKit.ipa Payload
+          )
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Dusklight-tvOS-unsigned-noCloudKit
+          path: build/Dusklight-tvOS-unsigned-noCloudKit.ipa
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/tvos-nocloud-v')
+        env:
+          GH_TOKEN: ${{github.token}}
+        run: >-
+          gh release create "${{github.ref_name}}"
+          build/Dusklight-tvOS-unsigned-noCloudKit.ipa
+          --generate-notes
+          --title "Dusklight tvOS ${{github.ref_name}} (unsigned, no CloudKit)"

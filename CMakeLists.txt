@@ -626,10 +626,19 @@ if (APPLE)
             CACHE STRING "CloudKit environment requested by signed Apple builds")
         set(DUSK_ENTITLEMENTS
             ${CMAKE_CURRENT_BINARY_DIR}/Dusklight.entitlements)
-        configure_file(
-            ${CMAKE_CURRENT_SOURCE_DIR}/platforms/apple/Dusklight.entitlements.in
-            ${DUSK_ENTITLEMENTS}
-            @ONLY)
+        if (DUSK_ENABLE_ICLOUD_SAVE_SYNC)
+            configure_file(
+                ${CMAKE_CURRENT_SOURCE_DIR}/platforms/apple/Dusklight.entitlements.in
+                ${DUSK_ENTITLEMENTS}
+                @ONLY)
+        else ()
+            # No CloudKit: request no iCloud entitlements, so the app can be
+            # signed with a free Apple ID / plain development profile.
+            configure_file(
+                ${CMAKE_CURRENT_SOURCE_DIR}/platforms/apple/Dusklight-nocloud.entitlements.in
+                ${DUSK_ENTITLEMENTS}
+                @ONLY)
+        endif ()
     endif ()
     set(DUSK_INFO_PLIST ${DUSK_RESOURCE_DIR}/Info.plist.in)
     file(GLOB_RECURSE DUSK_RESOURCE_FILES
