@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: "Runner label (macos-15-intel, macos-latest, macos-15, macos-14)"
+        description: "Runner label (macos-15-intel, macos-latest, macos-26, macos-15)"
         required: false
         default: macos-15-intel
   push:
@@ -33,6 +33,21 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Select newest Xcode (needs C++20 std::jthread, Xcode 26+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app || true
+          newest=$(ls -d /Applications/Xcode_*.app | sed -E 's#.*/Xcode_([0-9.]+)\.app#\1#' | sort -V | tail -1)
+          echo "Selecting Xcode $newest"
+          sudo xcode-select -s "/Applications/Xcode_${newest}.app"
+          xcodebuild -version
+          major=${newest%%.*}
+          if [ "$major" -lt 26 ]; then
+            echo "::error::This runner's newest Xcode is $newest; Xcode 26+ is required. Re-run with runner=macos-latest or macos-26."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: brew install cmake ninja protobuf
